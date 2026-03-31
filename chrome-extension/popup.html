@@ -7,14 +7,51 @@
     <link rel="stylesheet" href="popup.css" />
   </head>
   <body>
-    <main class="panel">
+    <header class="header">
       <h1 class="title">Analytiq Chef</h1>
-      <p class="hint">Active tab</p>
-      <p id="page-title" class="value">—</p>
-      <p class="hint">URL</p>
-      <p id="page-url" class="value url">—</p>
-      <p id="error" class="error" hidden></p>
-    </main>
+      <p class="subtitle">Campaigns · message sequences · <code>_FN_</code> = first name</p>
+    </header>
+
+    <p id="global-error" class="error" hidden></p>
+
+    <section class="card">
+      <h2 class="card-title">Campaign</h2>
+      <div class="row">
+        <label class="label" for="campaign-select">Active</label>
+        <select id="campaign-select" class="select"></select>
+      </div>
+      <div class="btn-row">
+        <button type="button" id="btn-new-campaign" class="btn btn-secondary">New campaign</button>
+      </div>
+      <div class="row">
+        <label class="label" for="campaign-name">Name</label>
+        <input id="campaign-name" class="input" type="text" placeholder="Campaign name" />
+      </div>
+      <p class="hint">Message sequence (step 1, then 2, …). Use <code>_FN_</code> for first name.</p>
+      <div id="sequence-editor" class="sequence-editor"></div>
+      <div class="btn-row">
+        <button type="button" id="btn-add-step" class="btn btn-secondary">Add message step</button>
+        <button type="button" id="btn-save-campaign" class="btn btn-primary">Save campaign</button>
+        <button type="button" id="btn-delete-campaign" class="btn btn-danger">Delete campaign</button>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2 class="card-title">Current LinkedIn tab</h2>
+      <p id="current-tab-hint" class="tab-hint">—</p>
+      <button type="button" id="btn-add-profile" class="btn btn-primary" disabled>
+        Add this profile to selected campaign
+      </button>
+    </section>
+
+    <section class="card">
+      <h2 class="card-title">Contacts in this campaign</h2>
+      <ul id="contacts-list" class="contacts-list"></ul>
+      <p id="contacts-empty" class="muted">No contacts yet. Open a profile and add it above.</p>
+    </section>
+
+    <script src="lib/template.js"></script>
+    <script src="lib/storage.js"></script>
     <script src="popup.js"></script>
   </body>
 </html>
