@@ -1,0 +1,11 @@
+{
+  "manifest_version": 3,
+  "name": "Analytiq Chef",
+  "version": "1.0.0",
+  "description": "Basic browser extension for the analytiq-chef project.",
+  "action": {
+    "default_title": "Analytiq Chef",
+    "default_popup": "popup.html"
+  },
+  "permissions": ["activeTab"]
+}

@@ -1,0 +1,51 @@
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-width: 280px;
+  max-width: 360px;
+  font-family: system-ui, sans-serif;
+  font-size: 13px;
+  color: #1a1a1a;
+  background: #f5f5f5;
+}
+
+.panel {
+  padding: 14px 16px;
+}
+
+.title {
+  margin: 0 0 12px;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.hint {
+  margin: 8px 0 2px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #666;
+}
+
+.value {
+  margin: 0;
+  line-height: 1.4;
+  word-break: break-word;
+}
+
+.url {
+  font-size: 12px;
+  color: #333;
+}
+
+.error {
+  margin: 10px 0 0;
+  padding: 8px;
+  font-size: 12px;
+  color: #b00020;
+  background: #ffebee;
+  border-radius: 4px;
+}
