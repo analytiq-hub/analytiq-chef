@@ -254,3 +254,70 @@ body {
 .hidden {
   display: none !important;
 }
+
+.log-details {
+  margin: 10px;
+}
+
+.log-summary {
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #546e7a;
+  list-style: none;
+}
+
+.log-summary::-webkit-details-marker {
+  display: none;
+}
+
+.log-summary::before {
+  content: "▶ ";
+  font-size: 10px;
+}
+
+.log-details[open] .log-summary::before {
+  content: "▼ ";
+}
+
+.log-toolbar {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 10px 0 8px;
+}
+
+.log-capture-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: #455a64;
+}
+
+.log-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.btn-tiny {
+  padding: 4px 8px;
+  font-size: 11px;
+}
+
+.log-panel {
+  margin: 0;
+  max-height: 180px;
+  overflow: auto;
+  padding: 8px;
+  font-size: 10px;
+  line-height: 1.35;
+  background: #263238;
+  color: #eceff1;
+  border-radius: 6px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}

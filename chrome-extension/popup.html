@@ -50,6 +50,23 @@
       <p id="contacts-empty" class="muted">No contacts yet. Open a profile and add it above.</p>
     </section>
 
+    <details class="card log-details" id="log-details">
+      <summary class="log-summary">Development logs</summary>
+      <div class="log-toolbar">
+        <label class="log-capture-label">
+          <input type="checkbox" id="capture-logs" checked />
+          Save logs (popup + LinkedIn page)
+        </label>
+        <div class="log-actions">
+          <button type="button" id="btn-log-refresh" class="btn btn-secondary btn-tiny">Refresh</button>
+          <button type="button" id="btn-log-copy" class="btn btn-secondary btn-tiny">Copy all</button>
+          <button type="button" id="btn-log-clear" class="btn btn-danger btn-tiny">Clear</button>
+        </div>
+      </div>
+      <pre id="log-panel" class="log-panel" aria-live="polite"></pre>
+    </details>
+
+    <script src="lib/logger.js"></script>
     <script src="lib/template.js"></script>
     <script src="lib/storage.js"></script>
     <script src="popup.js"></script>

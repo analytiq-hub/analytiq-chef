@@ -13,6 +13,11 @@ const el = {
   btnAddProfile: document.getElementById("btn-add-profile"),
   contactsList: document.getElementById("contacts-list"),
   contactsEmpty: document.getElementById("contacts-empty"),
+  captureLogs: document.getElementById("capture-logs"),
+  logPanel: document.getElementById("log-panel"),
+  btnLogRefresh: document.getElementById("btn-log-refresh"),
+  btnLogCopy: document.getElementById("btn-log-copy"),
+  btnLogClear: document.getElementById("btn-log-clear"),
 };
 
 /** In-memory draft for the sequence while editing (mirrors selected campaign). */
@@ -192,11 +197,13 @@ el.btnNew.addEventListener("click", async () => {
   setError("");
   try {
     const c = await createCampaign("New campaign", [""]);
+    log("popup: created campaign", c.id, c.name);
     await refreshCampaignSelect(c.id);
     await loadCampaignIntoForm(c.id);
     await renderContactsList();
     await updateTabHint();
   } catch (e) {
+    error("popup: create campaign failed", e);
     setError(e instanceof Error ? e.message : String(e));
   }
 });
@@ -218,9 +225,11 @@ el.btnSave.addEventListener("click", async () => {
       name: el.campaignName.value,
       messages: draftMessages,
     });
+    log("popup: saved campaign", id);
     await refreshCampaignSelect(id);
     await renderContactsList();
   } catch (e) {
+    error("popup: save campaign failed", e);
     setError(e instanceof Error ? e.message : String(e));
   }
 });
