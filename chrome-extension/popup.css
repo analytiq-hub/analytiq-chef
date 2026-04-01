@@ -330,6 +330,24 @@ body {
   padding: 0;
 }
 
+.contacts-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px solid #eceff1;
+}
+
+.contacts-page-label {
+  font-size: 11px;
+  color: #607d8b;
+  min-width: 7em;
+  text-align: center;
+}
+
 .contact-item {
   border-bottom: 1px solid #eceff1;
   padding: 10px 0;
@@ -339,9 +357,56 @@ body {
   border-bottom: none;
 }
 
-.contact-name {
+.contact-item-inner {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+}
+
+.contact-avatar {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  object-fit: cover;
+  flex-shrink: 0;
+  background: #eceff1;
+  border: 1px solid #e0e0e0;
+}
+
+.contact-avatar.contact-avatar-placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
   font-weight: 600;
-  margin: 0 0 4px;
+  color: #546e7a;
+  object-fit: unset;
+}
+
+.contact-item-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.contact-title-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.contact-title-row .contact-name {
+  font-weight: 600;
+  margin: 0;
+  flex: 1;
+  min-width: 0;
+  word-break: break-word;
+}
+
+.btn-contact-primary {
+  flex-shrink: 0;
+  white-space: nowrap;
 }
 
 .contact-meta {

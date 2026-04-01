@@ -1,6 +1,17 @@
 /** @typedef {{ body: string; delayDays: number; delayHours: number }} CampaignStep */
 /** @typedef {{ id: string; name: string; messages: CampaignStep[]; createdAt: string; updatedAt: string }} Campaign */
-/** @typedef {{ id: string; campaignId: string; linkedinProfileUrl: string; fullName: string; firstName: string; createdAt: string }} CampaignContact */
+/**
+ * @typedef {{
+ *   id: string;
+ *   campaignId: string;
+ *   linkedinProfileUrl: string;
+ *   fullName: string;
+ *   firstName: string;
+ *   createdAt: string;
+ *   photoUrl?: string;
+ *   isConnected?: boolean;
+ * }} CampaignContact
+ */
 
 const STORAGE_KEYS = {
   campaigns: "ac_campaigns",
@@ -113,7 +124,7 @@ async function deleteCampaign(id) {
 
 /**
  * @param {string} campaignId
- * @param {{ linkedinProfileUrl: string; fullName: string; firstName: string }} profile
+ * @param {{ linkedinProfileUrl: string; fullName: string; firstName: string; photoUrl?: string|null; isConnected?: boolean|null }} profile
  * @returns {Promise<CampaignContact>}
  */
 async function addContactToCampaign(campaignId, profile) {
@@ -132,6 +143,9 @@ async function addContactToCampaign(campaignId, profile) {
     firstName: profile.firstName.trim() || profile.fullName.split(/\s+/)[0] || "",
     createdAt: new Date().toISOString(),
   };
+  const photo = profile.photoUrl != null ? String(profile.photoUrl).trim() : "";
+  if (photo) contact.photoUrl = photo;
+  if (typeof profile.isConnected === "boolean") contact.isConnected = profile.isConnected;
   contacts.push(contact);
   await saveAll(campaigns, contacts);
   return contact;

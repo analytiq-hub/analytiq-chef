@@ -21,6 +21,7 @@ const el = {
   currentTabHint: document.getElementById("current-tab-hint"),
   btnAddProfile: document.getElementById("btn-add-profile"),
   contactsList: document.getElementById("contacts-list"),
+  contactsPagination: document.getElementById("contacts-pagination"),
   contactsEmpty: document.getElementById("contacts-empty"),
   campaignPreview: document.getElementById("campaign-preview"),
   previewContactSelect: document.getElementById("preview-contact-select"),
@@ -47,6 +48,23 @@ let pendingNew = false;
 
 /** Cached contacts for the currently selected campaign (used by preview). */
 let previewContacts = [];
+
+const CONTACTS_PAGE_SIZE = 10;
+/** Zero-based page index into the current campaign's contact list. */
+let contactsListPage = 0;
+/** Used to reset pagination when the active campaign changes. */
+let lastContactsListCampaignId = null;
+
+/**
+ * @param {{ firstName: string; fullName: string }} contact
+ * @returns {string}
+ */
+function contactInitials(contact) {
+  const raw = (contact.firstName || contact.fullName || "?").trim();
+  const parts = raw.split(/\s+/).filter(Boolean);
+  if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase();
+  return (parts[0] || "?").slice(0, 2).toUpperCase();
+}
 
 // ---------------------------------------------------------------------------
 // Error display
@@ -293,6 +311,12 @@ el.previewContactSelect.addEventListener("change", () => void renderPreview());
 async function renderContactsList() {
   const campaignId = getSelectedCampaignId();
   el.contactsList.innerHTML = "";
+  el.contactsPagination.innerHTML = "";
+  el.contactsPagination.classList.add("hidden");
+  if (campaignId !== lastContactsListCampaignId) {
+    contactsListPage = 0;
+    lastContactsListCampaignId = campaignId;
+  }
   if (!campaignId) {
     el.contactsEmpty.classList.remove("hidden");
     return;
@@ -309,13 +333,57 @@ async function renderContactsList() {
   el.contactsEmpty.classList.add("hidden");
   const firstStep = campaign && campaign.messages[0];
 
-  for (const contact of contacts) {
+  const totalPages = Math.max(1, Math.ceil(contacts.length / CONTACTS_PAGE_SIZE));
+  if (contactsListPage >= totalPages) contactsListPage = totalPages - 1;
+  const start = contactsListPage * CONTACTS_PAGE_SIZE;
+  const pageContacts = contacts.slice(start, start + CONTACTS_PAGE_SIZE);
+
+  for (const contact of pageContacts) {
     const li = document.createElement("li");
     li.className = "contact-item";
+
+    const row = document.createElement("div");
+    row.className = "contact-item-inner";
+
+    if (contact.photoUrl) {
+      const img = document.createElement("img");
+      img.className = "contact-avatar";
+      img.alt = "";
+      img.src = contact.photoUrl;
+      img.referrerPolicy = "no-referrer";
+      img.addEventListener("error", () => {
+        img.replaceWith(buildContactAvatarPlaceholder(contact));
+      });
+      row.appendChild(img);
+    } else {
+      row.appendChild(buildContactAvatarPlaceholder(contact));
+    }
+
+    const body = document.createElement("div");
+    body.className = "contact-item-body";
+
+    const titleRow = document.createElement("div");
+    titleRow.className = "contact-title-row";
 
     const name = document.createElement("p");
     name.className = "contact-name";
     name.textContent = contact.fullName;
+
+    const primaryBtn = document.createElement("button");
+    primaryBtn.type = "button";
+    primaryBtn.className = "btn btn-secondary btn-tiny btn-contact-primary";
+    const showMessage = contact.isConnected === true;
+    primaryBtn.textContent = showMessage ? "Message" : "Connect";
+    primaryBtn.title = showMessage
+      ? "Open profile to send a message"
+      : "Open profile to connect";
+    primaryBtn.addEventListener("click", () => {
+      chrome.tabs.create({ url: contact.linkedinProfileUrl, active: true });
+    });
+
+    titleRow.appendChild(name);
+    titleRow.appendChild(primaryBtn);
+    body.appendChild(titleRow);
 
     const meta = document.createElement("p");
     meta.className = "contact-meta";
@@ -325,15 +393,13 @@ async function renderContactsList() {
     a.rel = "noopener noreferrer";
     a.textContent = contact.linkedinProfileUrl;
     meta.appendChild(a);
-
-    li.appendChild(name);
-    li.appendChild(meta);
+    body.appendChild(meta);
 
     if (firstStep && firstStep.body.trim()) {
       const prev = document.createElement("p");
       prev.className = "contact-preview";
       prev.textContent = `Step 1: ${replaceFnPlaceholder(firstStep.body, contact.firstName)}`;
-      li.appendChild(prev);
+      body.appendChild(prev);
     }
 
     const actions = document.createElement("div");
@@ -364,9 +430,52 @@ async function renderContactsList() {
     actions.appendChild(removeBtn);
     actions.appendChild(document.createTextNode(" · "));
     actions.appendChild(schedBtn);
-    li.appendChild(actions);
+    body.appendChild(actions);
+
+    row.appendChild(body);
+    li.appendChild(row);
     el.contactsList.appendChild(li);
   }
+
+  if (contacts.length > CONTACTS_PAGE_SIZE) {
+    el.contactsPagination.classList.remove("hidden");
+    const prev = document.createElement("button");
+    prev.type = "button";
+    prev.className = "btn btn-secondary btn-tiny";
+    prev.textContent = "Previous";
+    prev.disabled = contactsListPage <= 0;
+    prev.addEventListener("click", () => {
+      contactsListPage = Math.max(0, contactsListPage - 1);
+      void renderContactsList();
+    });
+    const label = document.createElement("span");
+    label.className = "contacts-page-label";
+    label.textContent = `Page ${contactsListPage + 1} of ${totalPages}`;
+    const next = document.createElement("button");
+    next.type = "button";
+    next.className = "btn btn-secondary btn-tiny";
+    next.textContent = "Next";
+    next.disabled = contactsListPage >= totalPages - 1;
+    next.addEventListener("click", () => {
+      contactsListPage = Math.min(totalPages - 1, contactsListPage + 1);
+      void renderContactsList();
+    });
+    el.contactsPagination.appendChild(prev);
+    el.contactsPagination.appendChild(label);
+    el.contactsPagination.appendChild(next);
+  }
+}
+
+/**
+ * @param {{ firstName: string; fullName: string }} contact
+ * @returns {HTMLDivElement}
+ */
+function buildContactAvatarPlaceholder(contact) {
+  const div = document.createElement("div");
+  div.className = "contact-avatar contact-avatar-placeholder";
+  div.setAttribute("aria-hidden", "true");
+  div.textContent = contactInitials(contact);
+  return div;
 }
 
 // ---------------------------------------------------------------------------
@@ -826,6 +935,8 @@ el.btnAddProfile.addEventListener("click", async () => {
       linkedinProfileUrl: profile.profileUrl,
       fullName: profile.fullName || "",
       firstName: profile.firstName || "",
+      photoUrl: profile.photoUrl || undefined,
+      isConnected: typeof profile.isConnected === "boolean" ? profile.isConnected : undefined,
     });
     log("popup: contact added", profile.profileUrl, "→ campaign", campaignId);
     await renderContactsList();
