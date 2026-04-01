@@ -1,9 +1,5 @@
 const PROFILE_URL_RE = /^https:\/\/(www\.)?linkedin\.com\/in\/[^/?#]+\/?/i;
 
-/**
- * Without the extension context, `chrome.storage` is undefined (e.g. opening
- * popup.html as a file). With no `storage` permission, `chrome.storage` is also undefined.
- */
 function assertExtensionStorage() {
   if (typeof chrome === "undefined" || !chrome.storage || !chrome.storage.local) {
     throw new Error(
@@ -26,6 +22,9 @@ const el = {
   btnAddProfile: document.getElementById("btn-add-profile"),
   contactsList: document.getElementById("contacts-list"),
   contactsEmpty: document.getElementById("contacts-empty"),
+  campaignPreview: document.getElementById("campaign-preview"),
+  previewContactSelect: document.getElementById("preview-contact-select"),
+  previewSteps: document.getElementById("preview-steps"),
   queueList: document.getElementById("queue-list"),
   queueEmpty: document.getElementById("queue-empty"),
   btnExport: document.getElementById("btn-export"),
@@ -37,11 +36,17 @@ const el = {
   btnLogClear: document.getElementById("btn-log-clear"),
 };
 
-/** In-memory draft for the sequence while editing (mirrors selected campaign). */
-let draftMessages = [""];
+/**
+ * In-memory draft steps while editing.
+ * @type {{ body: string; delayDays: number; delayHours: number }[]}
+ */
+let draftSteps = [{ body: "", delayDays: 0, delayHours: 0 }];
 
-/** True while the user has clicked New but hasn't saved the campaign yet. */
+/** True while the user has clicked New but hasn't saved yet. */
 let pendingNew = false;
+
+/** Cached contacts for the currently selected campaign (used by preview). */
+let previewContacts = [];
 
 // ---------------------------------------------------------------------------
 // Error display
@@ -91,11 +96,60 @@ async function refreshCampaignSelect(selectedId) {
   return pick;
 }
 
+// ---------------------------------------------------------------------------
+// Sequence editor with per-step delay inputs
+// ---------------------------------------------------------------------------
+
 function renderSequenceEditor() {
   el.sequenceEditor.innerHTML = "";
-  draftMessages.forEach((body, index) => {
+  draftSteps.forEach((step, index) => {
     const wrap = document.createElement("div");
     wrap.className = "seq-step";
+
+    // — Delay row —
+    const delayRow = document.createElement("div");
+    delayRow.className = "seq-delay-row";
+
+    const delayLabel = document.createElement("span");
+    delayLabel.className = "seq-delay-label";
+    delayLabel.textContent = index === 0 ? "Send after:" : "Then wait:";
+
+    const daysInput = document.createElement("input");
+    daysInput.type = "number";
+    daysInput.min = "0";
+    daysInput.className = "seq-delay-input";
+    daysInput.value = String(step.delayDays);
+    daysInput.addEventListener("input", () => {
+      draftSteps[index].delayDays = Math.max(0, parseInt(daysInput.value, 10) || 0);
+      void renderPreview();
+    });
+
+    const daysUnit = document.createElement("span");
+    daysUnit.className = "seq-delay-unit";
+    daysUnit.textContent = "days";
+
+    const hoursInput = document.createElement("input");
+    hoursInput.type = "number";
+    hoursInput.min = "0";
+    hoursInput.max = "23";
+    hoursInput.className = "seq-delay-input";
+    hoursInput.value = String(step.delayHours);
+    hoursInput.addEventListener("input", () => {
+      draftSteps[index].delayHours = Math.max(0, Math.min(23, parseInt(hoursInput.value, 10) || 0));
+      void renderPreview();
+    });
+
+    const hoursUnit = document.createElement("span");
+    hoursUnit.className = "seq-delay-unit";
+    hoursUnit.textContent = "hours";
+
+    delayRow.appendChild(delayLabel);
+    delayRow.appendChild(daysInput);
+    delayRow.appendChild(daysUnit);
+    delayRow.appendChild(hoursInput);
+    delayRow.appendChild(hoursUnit);
+
+    // — Header row —
     const head = document.createElement("div");
     head.className = "seq-step-head";
     const lab = document.createElement("span");
@@ -105,21 +159,27 @@ function renderSequenceEditor() {
     rm.type = "button";
     rm.className = "seq-remove";
     rm.textContent = "Remove";
-    rm.disabled = draftMessages.length <= 1;
+    rm.disabled = draftSteps.length <= 1;
     rm.addEventListener("click", () => {
-      if (draftMessages.length <= 1) return;
-      draftMessages.splice(index, 1);
+      if (draftSteps.length <= 1) return;
+      draftSteps.splice(index, 1);
       renderSequenceEditor();
+      void renderPreview();
     });
     head.appendChild(lab);
     head.appendChild(rm);
+
+    // — Body textarea —
     const ta = document.createElement("textarea");
     ta.className = "seq-body";
-    ta.value = body;
+    ta.value = step.body;
     ta.placeholder = `Hi _FN_, …`;
     ta.addEventListener("input", () => {
-      draftMessages[index] = ta.value;
+      draftSteps[index].body = ta.value;
+      void renderPreview();
     });
+
+    wrap.appendChild(delayRow);
     wrap.appendChild(head);
     wrap.appendChild(ta);
     el.sequenceEditor.appendChild(wrap);
@@ -131,12 +191,87 @@ async function loadCampaignIntoForm(campaignId) {
   const c = campaigns.find((x) => x.id === campaignId);
   if (!c) return;
   el.campaignName.value = c.name;
-  draftMessages = c.messages.length ? [...c.messages] : [""];
+  draftSteps = c.messages.length
+    ? c.messages.map((m) => ({ body: m.body, delayDays: m.delayDays, delayHours: m.delayHours }))
+    : [{ body: "", delayDays: 0, delayHours: 0 }];
   renderSequenceEditor();
 }
 
 // ---------------------------------------------------------------------------
-// Contacts list (with per-contact Schedule button)
+// Preview panel
+// ---------------------------------------------------------------------------
+
+/** Format a delay as a human-readable string. */
+function formatDelay(days, hours) {
+  if (days === 0 && hours === 0) return "immediately";
+  const parts = [];
+  if (days > 0) parts.push(`${days}d`);
+  if (hours > 0) parts.push(`${hours}h`);
+  return parts.join(" ") + " later";
+}
+
+async function refreshPreviewPanel() {
+  const campaignId = getSelectedCampaignId();
+  if (!campaignId) {
+    el.campaignPreview.classList.add("hidden");
+    previewContacts = [];
+    return;
+  }
+  previewContacts = await listContactsForCampaign(campaignId);
+  if (!previewContacts.length) {
+    el.campaignPreview.classList.add("hidden");
+    return;
+  }
+  el.campaignPreview.classList.remove("hidden");
+
+  // Rebuild contact options, preserving the current selection if possible.
+  const currentVal = el.previewContactSelect.value;
+  el.previewContactSelect.innerHTML = "";
+  for (const c of previewContacts) {
+    const opt = document.createElement("option");
+    opt.value = c.id;
+    opt.textContent = c.fullName;
+    el.previewContactSelect.appendChild(opt);
+  }
+  if (currentVal && previewContacts.some((c) => c.id === currentVal)) {
+    el.previewContactSelect.value = currentVal;
+  }
+
+  void renderPreview();
+}
+
+async function renderPreview() {
+  el.previewSteps.innerHTML = "";
+  const contactId = el.previewContactSelect.value;
+  const contact = previewContacts.find((c) => c.id === contactId);
+  if (!contact) return;
+
+  draftSteps.forEach((step, index) => {
+    const div = document.createElement("div");
+    div.className = "preview-step";
+
+    const labelEl = document.createElement("div");
+    labelEl.className = "preview-step-label";
+    const timing = document.createElement("span");
+    timing.className = "preview-step-timing";
+    timing.textContent = `(${formatDelay(step.delayDays, step.delayHours)})`;
+    labelEl.textContent = `Step ${index + 1}`;
+    labelEl.appendChild(timing);
+
+    const bodyEl = document.createElement("div");
+    bodyEl.className = "preview-step-body";
+    bodyEl.textContent = replaceFnPlaceholder(step.body, contact.firstName);
+
+    div.appendChild(labelEl);
+    div.appendChild(bodyEl);
+    el.previewSteps.appendChild(div);
+  });
+}
+
+el.previewContactSelect.addEventListener("change", () => void renderPreview());
+
+// ---------------------------------------------------------------------------
+// Contacts list
 // ---------------------------------------------------------------------------
 
 async function renderContactsList() {
@@ -149,12 +284,15 @@ async function renderContactsList() {
   const { campaigns } = await loadAll();
   const campaign = campaigns.find((c) => c.id === campaignId);
   const contacts = await listContactsForCampaign(campaignId);
+  previewContacts = contacts;
+
   if (!contacts.length) {
     el.contactsEmpty.classList.remove("hidden");
     return;
   }
   el.contactsEmpty.classList.add("hidden");
-  const firstTemplate = campaign && campaign.messages[0] != null ? campaign.messages[0] : "";
+  const firstStep = campaign && campaign.messages[0];
+
   for (const contact of contacts) {
     const li = document.createElement("li");
     li.className = "contact-item";
@@ -175,10 +313,10 @@ async function renderContactsList() {
     li.appendChild(name);
     li.appendChild(meta);
 
-    if (firstTemplate.trim()) {
+    if (firstStep && firstStep.body.trim()) {
       const prev = document.createElement("p");
       prev.className = "contact-preview";
-      prev.textContent = `Step 1 preview: ${replaceFnPlaceholder(firstTemplate, contact.firstName)}`;
+      prev.textContent = `Step 1: ${replaceFnPlaceholder(firstStep.body, contact.firstName)}`;
       li.appendChild(prev);
     }
 
@@ -193,6 +331,7 @@ async function renderContactsList() {
       if (!confirm(`Remove ${contact.fullName} from this campaign?`)) return;
       await removeContact(contact.id);
       await renderContactsList();
+      await refreshPreviewPanel();
     });
 
     const schedBtn = document.createElement("button");
@@ -218,6 +357,14 @@ async function renderContactsList() {
 // Schedule form (per contact)
 // ---------------------------------------------------------------------------
 
+function stepTotalDelayMs(steps, upToIndex) {
+  let ms = 0;
+  for (let i = 0; i <= upToIndex; i++) {
+    ms += ((steps[i]?.delayDays || 0) * 24 + (steps[i]?.delayHours || 0)) * 3600 * 1000;
+  }
+  return ms;
+}
+
 function localDatetimeValue(date) {
   const pad = (n) => String(n).padStart(2, "0");
   return (
@@ -230,7 +377,7 @@ function buildScheduleForm(contact, campaign) {
   const wrap = document.createElement("div");
   wrap.className = "schedule-form";
 
-  // Step selector (only shown when there is more than one message)
+  // Step selector (only when there is more than one message)
   let stepSelect = null;
   if (campaign.messages.length > 1) {
     const row = document.createElement("div");
@@ -251,7 +398,7 @@ function buildScheduleForm(contact, campaign) {
     wrap.appendChild(row);
   }
 
-  // Date/time picker
+  // Date/time picker — default to now + accumulated step delay
   const timeRow = document.createElement("div");
   timeRow.className = "schedule-row";
   const timeLbl = document.createElement("label");
@@ -260,18 +407,26 @@ function buildScheduleForm(contact, campaign) {
   const timeInput = document.createElement("input");
   timeInput.type = "datetime-local";
   timeInput.className = "input";
-  timeInput.value = localDatetimeValue(new Date(Date.now() + 5 * 60 * 1000));
+
+  function updateSuggestedTime() {
+    const idx = stepSelect ? parseInt(stepSelect.value, 10) : 0;
+    const delayMs = stepTotalDelayMs(campaign.messages, idx);
+    timeInput.value = localDatetimeValue(new Date(Date.now() + Math.max(delayMs, 60 * 1000)));
+  }
+  updateSuggestedTime();
+  if (stepSelect) stepSelect.addEventListener("change", updateSuggestedTime);
+
   timeRow.appendChild(timeLbl);
   timeRow.appendChild(timeInput);
   wrap.appendChild(timeRow);
 
-  // Live preview
+  // Live preview of the rendered message
   const preview = document.createElement("p");
   preview.className = "schedule-preview";
   function updatePreview() {
     const idx = stepSelect ? parseInt(stepSelect.value, 10) : 0;
-    const msg = campaign.messages[idx] || "";
-    preview.textContent = replaceFnPlaceholder(msg, contact.firstName);
+    const step = campaign.messages[idx];
+    preview.textContent = step ? replaceFnPlaceholder(step.body, contact.firstName) : "";
   }
   updatePreview();
   if (stepSelect) stepSelect.addEventListener("change", updatePreview);
@@ -288,10 +443,8 @@ function buildScheduleForm(contact, campaign) {
   queueBtn.addEventListener("click", async () => {
     const stepIndex = stepSelect ? parseInt(stepSelect.value, 10) : 0;
     const scheduledFor = new Date(timeInput.value).toISOString();
-    const finalMessage = replaceFnPlaceholder(
-      campaign.messages[stepIndex] || "",
-      contact.firstName
-    );
+    const step = campaign.messages[stepIndex];
+    const finalMessage = replaceFnPlaceholder(step ? step.body : "", contact.firstName);
     try {
       await createJob({ campaignId: campaign.id, contactId: contact.id, stepIndex, finalMessage, scheduledFor });
       log("popup: scheduled job for", contact.fullName, "step", stepIndex + 1);
@@ -338,19 +491,15 @@ function notifyBadgeUpdate() {
 
 async function renderQueue() {
   const [jobs, { contacts, campaigns }] = await Promise.all([listJobs(), loadAll()]);
-
   el.queueList.innerHTML = "";
 
-  // Show everything except old completed/cancelled jobs to keep the list manageable
   const active = jobs.filter((j) => !["sent_manually", "cancelled"].includes(j.status));
-
   if (!active.length) {
     el.queueEmpty.hidden = false;
     return;
   }
   el.queueEmpty.hidden = true;
 
-  // Sort: action-needed first, then by scheduled time
   const priority = { drafted: 0, failed: 1, opening: 2, pending: 3 };
   active.sort((a, b) => {
     const pa = priority[a.status] ?? 9;
@@ -370,7 +519,6 @@ function renderJobItem(job, contact, campaign) {
   const li = document.createElement("li");
   li.className = "queue-item";
 
-  // — Info column —
   const info = document.createElement("div");
   info.className = "queue-item-info";
 
@@ -380,8 +528,7 @@ function renderJobItem(job, contact, campaign) {
 
   const stepEl = document.createElement("span");
   stepEl.className = "queue-step";
-  const campaignName = campaign ? campaign.name : "Unknown campaign";
-  stepEl.textContent = `${campaignName} · Step ${job.stepIndex + 1}`;
+  stepEl.textContent = `${campaign ? campaign.name : "Unknown campaign"} · Step ${job.stepIndex + 1}`;
 
   const whenEl = document.createElement("span");
   whenEl.className = "queue-when";
@@ -403,12 +550,10 @@ function renderJobItem(job, contact, campaign) {
     info.appendChild(errEl);
   }
 
-  // — Actions column —
   const actionsEl = document.createElement("div");
   actionsEl.className = "queue-item-actions";
 
   if (job.status === "drafted") {
-    // "Go to tab" focuses the already-open LinkedIn tab
     if (job.openedTabId) {
       const goBtn = document.createElement("button");
       goBtn.type = "button";
@@ -419,7 +564,6 @@ function renderJobItem(job, contact, campaign) {
       });
       actionsEl.appendChild(goBtn);
     }
-
     const markSentBtn = document.createElement("button");
     markSentBtn.type = "button";
     markSentBtn.className = "btn btn-primary btn-tiny";
@@ -498,6 +642,7 @@ el.campaignSelect.addEventListener("change", async () => {
   const id = getSelectedCampaignId();
   if (id) await loadCampaignIntoForm(id);
   await renderContactsList();
+  await refreshPreviewPanel();
   await updateTabHint();
 });
 
@@ -512,8 +657,9 @@ el.btnNew.addEventListener("click", () => {
   el.btnClone.disabled = true;
   el.campaignSelect.disabled = true;
   el.campaignName.value = "";
-  draftMessages = [""];
+  draftSteps = [{ body: "", delayDays: 0, delayHours: 0 }];
   renderSequenceEditor();
+  el.campaignPreview.classList.add("hidden");
   el.campaignName.focus();
 });
 
@@ -534,6 +680,7 @@ el.btnClone.addEventListener("click", async () => {
     await refreshCampaignSelect(clone.id);
     await loadCampaignIntoForm(clone.id);
     await renderContactsList();
+    await refreshPreviewPanel();
     await updateTabHint();
   } catch (e) {
     setError(e instanceof Error ? e.message : String(e));
@@ -545,7 +692,7 @@ el.btnClone.addEventListener("click", async () => {
 // ---------------------------------------------------------------------------
 
 el.btnAddStep.addEventListener("click", () => {
-  draftMessages.push("");
+  draftSteps.push({ body: "", delayDays: 1, delayHours: 0 });
   renderSequenceEditor();
 });
 
@@ -561,7 +708,7 @@ el.btnSave.addEventListener("click", async () => {
     el.campaignName.focus();
     return;
   }
-  const emptyIndex = draftMessages.findIndex((m) => !m.trim());
+  const emptyIndex = draftSteps.findIndex((s) => !s.body.trim());
   if (emptyIndex !== -1) {
     setError(`Message ${emptyIndex + 1} is empty.`);
     el.sequenceEditor.querySelectorAll(".seq-body")[emptyIndex]?.focus();
@@ -570,18 +717,19 @@ el.btnSave.addEventListener("click", async () => {
   let id = pendingNew ? null : getSelectedCampaignId();
   try {
     if (!id) {
-      const c = await createCampaign(name, draftMessages);
+      const c = await createCampaign(name, draftSteps);
       log("popup: created campaign via save", c.id, c.name);
       id = c.id;
       pendingNew = false;
       el.btnNew.disabled = false;
       el.btnClone.disabled = false;
     } else {
-      await updateCampaign(id, { name, messages: draftMessages });
+      await updateCampaign(id, { name, messages: draftSteps });
       log("popup: saved campaign", id);
     }
     await refreshCampaignSelect(id);
     await renderContactsList();
+    await refreshPreviewPanel();
     await updateTabHint();
   } catch (e) {
     error("popup: save campaign failed", e);
@@ -601,8 +749,13 @@ el.btnDelete.addEventListener("click", async () => {
     setError("");
     const first = await refreshCampaignSelect(null);
     if (first) await loadCampaignIntoForm(first);
-    else { el.campaignName.value = ""; draftMessages = [""]; renderSequenceEditor(); }
+    else {
+      el.campaignName.value = "";
+      draftSteps = [{ body: "", delayDays: 0, delayHours: 0 }];
+      renderSequenceEditor();
+    }
     await renderContactsList();
+    await refreshPreviewPanel();
     await updateTabHint();
     return;
   }
@@ -614,8 +767,13 @@ el.btnDelete.addEventListener("click", async () => {
     await deleteCampaign(id);
     const next = await refreshCampaignSelect(null);
     if (next) await loadCampaignIntoForm(next);
-    else { el.campaignName.value = ""; draftMessages = [""]; renderSequenceEditor(); }
+    else {
+      el.campaignName.value = "";
+      draftSteps = [{ body: "", delayDays: 0, delayHours: 0 }];
+      renderSequenceEditor();
+    }
     await renderContactsList();
+    await refreshPreviewPanel();
     await updateTabHint();
   } catch (e) {
     setError(e instanceof Error ? e.message : String(e));
@@ -650,6 +808,7 @@ el.btnAddProfile.addEventListener("click", async () => {
     });
     log("popup: contact added", profile.profileUrl, "→ campaign", campaignId);
     await renderContactsList();
+    await refreshPreviewPanel();
   } catch (e) {
     const msg = e && typeof e === "object" && "message" in e
       ? String(/** @type {{ message?: string }} */ (e).message)
@@ -706,8 +865,13 @@ el.importFile.addEventListener("change", async () => {
     el.importFile.value = "";
     const first = await refreshCampaignSelect(null);
     if (first) await loadCampaignIntoForm(first);
-    else { el.campaignName.value = ""; draftMessages = [""]; renderSequenceEditor(); }
+    else {
+      el.campaignName.value = "";
+      draftSteps = [{ body: "", delayDays: 0, delayHours: 0 }];
+      renderSequenceEditor();
+    }
     await renderContactsList();
+    await refreshPreviewPanel();
     await updateTabHint();
     await renderQueue();
     notifyBadgeUpdate();
@@ -778,8 +942,13 @@ async function init() {
     setError("");
     const first = await refreshCampaignSelect(null);
     if (first) await loadCampaignIntoForm(first);
-    else { el.campaignName.value = ""; draftMessages = [""]; renderSequenceEditor(); }
+    else {
+      el.campaignName.value = "";
+      draftSteps = [{ body: "", delayDays: 0, delayHours: 0 }];
+      renderSequenceEditor();
+    }
     await renderContactsList();
+    await refreshPreviewPanel();
     await updateTabHint();
     await renderQueue();
     await initLogsUi();

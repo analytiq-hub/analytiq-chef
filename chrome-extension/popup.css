@@ -154,6 +154,98 @@ body {
   cursor: not-allowed;
 }
 
+/* ── Step delay row ────────────────────────────────────────────────────── */
+
+.seq-delay-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+  padding: 5px 8px;
+  background: #f0f4f8;
+  border-radius: 4px;
+  font-size: 11px;
+  color: #546e7a;
+}
+
+.seq-delay-label {
+  flex-shrink: 0;
+}
+
+.seq-delay-input {
+  width: 46px;
+  padding: 3px 6px;
+  border: 1px solid #cfd8dc;
+  border-radius: 4px;
+  font: inherit;
+  text-align: center;
+}
+
+.seq-delay-unit {
+  flex-shrink: 0;
+  color: #78909c;
+}
+
+/* ── Preview panel ─────────────────────────────────────────────────────── */
+
+.campaign-preview {
+  margin-top: 12px;
+  border-top: 1px solid #eceff1;
+  padding-top: 10px;
+}
+
+.preview-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.preview-title {
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #546e7a;
+  flex-shrink: 0;
+}
+
+.preview-select {
+  flex: 1;
+  min-width: 0;
+  padding: 5px 8px;
+  font-size: 12px;
+}
+
+.preview-step {
+  margin-bottom: 10px;
+}
+
+.preview-step-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: #455a64;
+  margin-bottom: 4px;
+}
+
+.preview-step-timing {
+  font-size: 10px;
+  color: #90a4ae;
+  font-weight: normal;
+  margin-left: 4px;
+}
+
+.preview-step-body {
+  font-size: 11px;
+  color: #37474f;
+  padding: 7px 8px;
+  background: #f5f7fa;
+  border: 1px solid #e0e0e0;
+  border-radius: 4px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 .seq-body {
   width: 100%;
   min-height: 64px;

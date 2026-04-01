@@ -1,10 +1,26 @@
-/** @typedef {{ id: string; name: string; messages: string[]; createdAt: string; updatedAt: string }} Campaign */
+/** @typedef {{ body: string; delayDays: number; delayHours: number }} CampaignStep */
+/** @typedef {{ id: string; name: string; messages: CampaignStep[]; createdAt: string; updatedAt: string }} Campaign */
 /** @typedef {{ id: string; campaignId: string; linkedinProfileUrl: string; fullName: string; firstName: string; createdAt: string }} CampaignContact */
 
 const STORAGE_KEYS = {
   campaigns: "ac_campaigns",
   contacts: "ac_campaign_contacts",
 };
+
+/**
+ * Normalize a stored message entry to a CampaignStep.
+ * Accepts both the legacy string format and the current object format.
+ * @param {string | CampaignStep} raw
+ * @returns {CampaignStep}
+ */
+function normalizeStep(raw) {
+  if (typeof raw === "string") return { body: raw, delayDays: 0, delayHours: 0 };
+  return {
+    body: String(raw.body ?? ""),
+    delayDays: Math.max(0, Number(raw.delayDays) || 0),
+    delayHours: Math.max(0, Number(raw.delayHours) || 0),
+  };
+}
 
 /**
  * @param {string} url
@@ -26,8 +42,14 @@ function normalizeProfileUrl(url) {
  */
 async function loadAll() {
   const raw = await chrome.storage.local.get([STORAGE_KEYS.campaigns, STORAGE_KEYS.contacts]);
+  const campaigns = Array.isArray(raw[STORAGE_KEYS.campaigns])
+    ? raw[STORAGE_KEYS.campaigns].map((c) => ({
+        ...c,
+        messages: Array.isArray(c.messages) ? c.messages.map(normalizeStep) : [normalizeStep("")],
+      }))
+    : [];
   return {
-    campaigns: Array.isArray(raw[STORAGE_KEYS.campaigns]) ? raw[STORAGE_KEYS.campaigns] : [],
+    campaigns,
     contacts: Array.isArray(raw[STORAGE_KEYS.contacts]) ? raw[STORAGE_KEYS.contacts] : [],
   };
 }
@@ -54,7 +76,7 @@ async function createCampaign(name, messages) {
   const campaign = {
     id: crypto.randomUUID(),
     name: name.trim() || "Untitled campaign",
-    messages: messages.length ? messages : [""],
+    messages: messages.length ? messages.map(normalizeStep) : [normalizeStep("")],
     createdAt: now,
     updatedAt: now,
   };
@@ -73,7 +95,7 @@ async function updateCampaign(id, patch) {
   if (i === -1) throw new Error("Campaign not found");
   const now = new Date().toISOString();
   if (patch.name != null) campaigns[i].name = patch.name.trim() || "Untitled campaign";
-  if (patch.messages != null) campaigns[i].messages = patch.messages.map((m) => String(m));
+  if (patch.messages != null) campaigns[i].messages = patch.messages.map(normalizeStep);
   campaigns[i].updatedAt = now;
   await saveAll(campaigns, contacts);
   return campaigns[i];
