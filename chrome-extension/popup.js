@@ -174,6 +174,21 @@ function renderSequenceEditor() {
     ta.className = "seq-body";
     ta.value = step.body;
     ta.placeholder = `Hi _FN_, …`;
+
+    // — Character counter (first step only) —
+    let charCounter = null;
+    if (index === 0) {
+      charCounter = document.createElement("div");
+      charCounter.className = "seq-char-count";
+      function updateCounter() {
+        const len = draftSteps[0].body.length;
+        charCounter.textContent = `${len} / 300`;
+        charCounter.classList.toggle("seq-char-count-over", len > 300);
+      }
+      updateCounter();
+      ta.addEventListener("input", updateCounter);
+    }
+
     ta.addEventListener("input", () => {
       draftSteps[index].body = ta.value;
       void renderPreview();
@@ -182,6 +197,7 @@ function renderSequenceEditor() {
     wrap.appendChild(delayRow);
     wrap.appendChild(head);
     wrap.appendChild(ta);
+    if (charCounter) wrap.appendChild(charCounter);
     el.sequenceEditor.appendChild(wrap);
   });
 }
@@ -712,6 +728,11 @@ el.btnSave.addEventListener("click", async () => {
   if (emptyIndex !== -1) {
     setError(`Message ${emptyIndex + 1} is empty.`);
     el.sequenceEditor.querySelectorAll(".seq-body")[emptyIndex]?.focus();
+    return;
+  }
+  if (draftSteps[0].body.length > 300) {
+    setError(`Message 1 must be 300 characters or fewer (currently ${draftSteps[0].body.length}).`);
+    el.sequenceEditor.querySelectorAll(".seq-body")[0]?.focus();
     return;
   }
   let id = pendingNew ? null : getSelectedCampaignId();

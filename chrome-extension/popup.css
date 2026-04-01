@@ -246,6 +246,18 @@ body {
   word-break: break-word;
 }
 
+.seq-char-count {
+  margin-top: 4px;
+  font-size: 10px;
+  color: #90a4ae;
+  text-align: right;
+}
+
+.seq-char-count-over {
+  color: #b71c1c;
+  font-weight: 600;
+}
+
 .seq-body {
   width: 100%;
   min-height: 64px;
