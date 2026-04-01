@@ -345,19 +345,9 @@ async function renderContactsList() {
     const row = document.createElement("div");
     row.className = "contact-item-inner";
 
-    if (contact.photoUrl) {
-      const img = document.createElement("img");
-      img.className = "contact-avatar";
-      img.alt = "";
-      img.src = contact.photoUrl;
-      img.referrerPolicy = "no-referrer";
-      img.addEventListener("error", () => {
-        img.replaceWith(buildContactAvatarPlaceholder(contact));
-      });
-      row.appendChild(img);
-    } else {
-      row.appendChild(buildContactAvatarPlaceholder(contact));
-    }
+    // LinkedIn CDN images require auth cookies and won't load from the
+    // extension popup (different origin). Always use initials instead.
+    row.appendChild(buildContactAvatarPlaceholder(contact));
 
     const body = document.createElement("div");
     body.className = "contact-item-body";
@@ -381,9 +371,31 @@ async function renderContactsList() {
       chrome.tabs.create({ url: contact.linkedinProfileUrl, active: true });
     });
 
-    titleRow.appendChild(name);
+    // Degree badge (1st / 2nd / 3rd)
+    if (contact.connectionDegree && contact.connectionDegree !== "None") {
+      const badge = document.createElement("span");
+      badge.className = "contact-degree-badge";
+      badge.textContent = contact.connectionDegree;
+      titleRow.appendChild(badge);
+    }
+
     titleRow.appendChild(primaryBtn);
     body.appendChild(titleRow);
+    body.appendChild(name);
+
+    // jobTitle from LinkedIn sometimes starts with the full name — strip it.
+    let jobTitle = (contact.jobTitle || "").trim();
+    const nameLower = contact.fullName.trim().toLowerCase();
+    if (jobTitle.toLowerCase().startsWith(nameLower)) {
+      jobTitle = jobTitle.slice(contact.fullName.trim().length).replace(/^\s*[·•\-–—]\s*/, "").trim();
+    }
+    const company = (contact.company || "").trim();
+    if (jobTitle || company) {
+      const hl = document.createElement("p");
+      hl.className = "contact-headline";
+      hl.textContent = [jobTitle, company].filter(Boolean).join(" · ");
+      body.appendChild(hl);
+    }
 
     const meta = document.createElement("p");
     meta.className = "contact-meta";
@@ -937,6 +949,9 @@ el.btnAddProfile.addEventListener("click", async () => {
       firstName: profile.firstName || "",
       photoUrl: profile.photoUrl || undefined,
       isConnected: typeof profile.isConnected === "boolean" ? profile.isConnected : undefined,
+      jobTitle: profile.jobTitle || undefined,
+      company: profile.company || undefined,
+      connectionDegree: profile.connectionDegree || undefined,
     });
     log("popup: contact added", profile.profileUrl, "→ campaign", campaignId);
     await renderContactsList();

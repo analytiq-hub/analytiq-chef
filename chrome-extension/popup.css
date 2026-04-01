@@ -390,17 +390,32 @@ body {
 
 .contact-title-row {
   display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 8px;
-  margin-bottom: 4px;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 2px;
 }
 
-.contact-title-row .contact-name {
+.contact-name {
   font-weight: 600;
-  margin: 0;
-  flex: 1;
-  min-width: 0;
+  margin: 0 0 2px;
+  word-break: break-word;
+}
+
+.contact-degree-badge {
+  font-size: 10px;
+  font-weight: 600;
+  color: #546e7a;
+  background: #eceff1;
+  border-radius: 3px;
+  padding: 1px 5px;
+  flex-shrink: 0;
+}
+
+.contact-headline {
+  font-size: 11px;
+  color: #455a64;
+  margin: 0 0 4px;
+  line-height: 1.35;
   word-break: break-word;
 }
 

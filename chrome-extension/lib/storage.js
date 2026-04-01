@@ -10,6 +10,9 @@
  *   createdAt: string;
  *   photoUrl?: string;
  *   isConnected?: boolean;
+ *   jobTitle?: string;
+ *   company?: string;
+ *   connectionDegree?: string;
  * }} CampaignContact
  */
 
@@ -17,6 +20,22 @@ const STORAGE_KEYS = {
   campaigns: "ac_campaigns",
   contacts: "ac_campaign_contacts",
 };
+
+/**
+ * @param {string|null|undefined} url
+ * @returns {boolean}
+ */
+function isSafeHttpImageUrl(url) {
+  if (url == null || typeof url !== "string") return false;
+  const t = url.trim();
+  if (!t) return false;
+  try {
+    const u = new URL(t);
+    return u.protocol === "https:" || u.protocol === "http:";
+  } catch {
+    return false;
+  }
+}
 
 /**
  * Normalize a stored message entry to a CampaignStep.
@@ -124,7 +143,7 @@ async function deleteCampaign(id) {
 
 /**
  * @param {string} campaignId
- * @param {{ linkedinProfileUrl: string; fullName: string; firstName: string; photoUrl?: string|null; isConnected?: boolean|null }} profile
+ * @param {{ linkedinProfileUrl: string; fullName: string; firstName: string; photoUrl?: string|null; isConnected?: boolean|null; jobTitle?: string|null; company?: string|null; connectionDegree?: string|null }} profile
  * @returns {Promise<CampaignContact>}
  */
 async function addContactToCampaign(campaignId, profile) {
@@ -144,8 +163,14 @@ async function addContactToCampaign(campaignId, profile) {
     createdAt: new Date().toISOString(),
   };
   const photo = profile.photoUrl != null ? String(profile.photoUrl).trim() : "";
-  if (photo) contact.photoUrl = photo;
+  if (photo && isSafeHttpImageUrl(photo)) contact.photoUrl = photo;
   if (typeof profile.isConnected === "boolean") contact.isConnected = profile.isConnected;
+  const jobTitle = profile.jobTitle != null ? String(profile.jobTitle).trim() : "";
+  if (jobTitle) contact.jobTitle = jobTitle;
+  const company = profile.company != null ? String(profile.company).trim() : "";
+  if (company) contact.company = company;
+  const deg = profile.connectionDegree != null ? String(profile.connectionDegree).trim() : "";
+  if (deg) contact.connectionDegree = deg;
   contacts.push(contact);
   await saveAll(campaigns, contacts);
   return contact;
