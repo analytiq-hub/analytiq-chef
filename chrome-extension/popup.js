@@ -232,7 +232,13 @@ el.btnSave.addEventListener("click", async () => {
     el.campaignName.focus();
     return;
   }
-  let id = getSelectedCampaignId();
+  const emptyIndex = draftMessages.findIndex((m) => !m.trim());
+  if (emptyIndex !== -1) {
+    setError(`Message ${emptyIndex + 1} is empty.`);
+    el.sequenceEditor.querySelectorAll(".seq-body")[emptyIndex]?.focus();
+    return;
+  }
+  let id = pendingNew ? null : getSelectedCampaignId();
   try {
     if (!id) {
       const c = await createCampaign(name, draftMessages);
