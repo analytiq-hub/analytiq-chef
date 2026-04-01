@@ -27,6 +27,23 @@ This plan is intentionally for a **manual-send copilot**, not an auto-sender.
 - Show job status in the extension UI
 - Prevent duplicate drafting for the same queued job
 
+### In scope for v2 (informed by Dux-Soup feature analysis)
+- **Multi-action campaign steps**: each step has an action type, not just a message body
+  - View profile (soft touch before connecting)
+  - Send connection request (with optional note)
+  - Follow profile
+  - Endorse skills
+  - Direct message (1st-degree only)
+  - InMail (non-connections)
+- **Per-step delays**: configurable delay (days / hours) between steps, measured from previous step completion; for connection requests, delay starts from acceptance
+- **Connection-aware logic**: automatically skip the connection-request step if the contact is already a 1st-degree connection; block InMail after a connection request (direct message is used instead)
+- **Auto-drop on reply**: detect when a contact has replied and remove them from further campaign steps
+- **Cross-campaign deduplication**: option to reject profiles already enrolled in another campaign
+- **Already-connected filter**: option to skip profiles who are existing 1st-degree connections at enrollment time
+- **Per-contact step progress**: track which step each contact has reached and when the next action is due
+- **Campaign funnel view**: conversion rates across steps for a selected campaign and date range
+- **Clone campaign**: duplicate an existing campaign as a starting point
+
 ### Out of scope for v1
 - Automatic clicking of Send
 - Bulk scraping of LinkedIn contacts
@@ -130,8 +147,10 @@ Shared TypeScript utilities for:
 type Recipient = {
   id: string;
   fullName: string;
+  firstName: string;
   linkedinProfileUrl: string;
   linkedinMessageUrl?: string;
+  connectionDegree?: 1 | 2 | 3; // detected at enrollment time
   notes?: string;
   createdAt: string;
   updatedAt: string;
@@ -150,6 +169,38 @@ type Template = {
 };
 ```
 
+## Campaign Step (v2)
+```ts
+type StepActionType =
+  | "view_profile"
+  | "follow"
+  | "endorse"
+  | "connect"       // connection request; optional note via templateId
+  | "message"       // direct message to 1st-degree connection
+  | "inmail";       // for non-connections
+
+type CampaignStep = {
+  index: number;
+  actionType: StepActionType;
+  templateId?: string;  // for connect note / message / inmail body
+  delayDays: number;    // delay from previous step completion (or connection acceptance for "connect")
+  delayHours: number;
+};
+```
+
+## Campaign (v2)
+```ts
+type Campaign = {
+  id: string;
+  name: string;
+  steps: CampaignStep[];
+  rejectIfInOtherCampaign: boolean;
+  rejectIfAlreadyConnected: boolean;
+  createdAt: string;
+  updatedAt: string;
+};
+```
+
 ## Queued Job
 ```ts
 type JobStatus =
@@ -159,11 +210,14 @@ type JobStatus =
   | "drafted"
   | "sent_manually"
   | "failed"
-  | "cancelled";
+  | "cancelled"
+  | "dropped_on_reply";  // v2: auto-dropped because contact replied
 
 type QueuedJob = {
   id: string;
   recipientId: string;
+  campaignId?: string;      // v2: which campaign this job belongs to
+  campaignStepIndex?: number; // v2: which step
   templateId?: string;
   finalMessageBody: string;
   scheduledFor: string;
@@ -430,7 +484,7 @@ Cover:
 
 ## 18. Delivery Phases
 
-## Phase 0: Project bootstrap
+## Phase 0: Project bootstrap (current)
 - scaffold MV3 extension
 - configure TypeScript + Vite
 - add popup
@@ -475,9 +529,29 @@ Deliverable:
 - export/import local data
 - browser restart recovery improvements
 - stronger selector resilience
+- clone campaign action
 
 Deliverable:
 - usable daily-driver private tool
+
+## Phase 5: Multi-action campaigns (v2)
+- extend campaign step model with `actionType` and per-step delay
+- implement view-profile, follow, endorse, connect actions in content script
+- connection-aware logic: skip connect step for 1st-degree contacts
+- InMail vs. direct-message routing based on connection degree
+- per-contact step progress tracking
+- auto-drop contact from campaign on reply detection
+
+Deliverable:
+- full Dux-Soup-equivalent drip sequence for a single campaign
+
+## Phase 6: Analytics
+- campaign funnel view: per-step conversion rates
+- enrollment filters: reject-if-in-other-campaign, reject-if-connected
+- date-range filtering on funnel data
+
+Deliverable:
+- visibility into which campaign steps convert
 
 ## 19. Estimated Complexity
 
@@ -515,7 +589,7 @@ If this works reliably, the product is already useful.
 
 ## 21. Nice-to-Have Later
 
-- placeholder variables beyond name
+- placeholder variables beyond name (company, notes, …)
 - CSV import of recipient list
 - export/import of local extension data
 - duplicate-recipient detection
@@ -523,6 +597,9 @@ If this works reliably, the product is already useful.
 - optional AI rewrite helper for draft text
 - send confirmation detection via DOM observation
 - support for multiple LinkedIn message modes
+- Sales Navigator / Recruiter tab support
+- CRM integrations (Pipedrive, HubSpot) via Zapier/Make
+- Cloud execution mode (run campaigns without keeping browser open)
 
 ## 22. Development Notes for Implementation
 
