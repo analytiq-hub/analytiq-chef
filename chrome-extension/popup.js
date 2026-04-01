@@ -35,6 +35,9 @@ const el = {
 /** In-memory draft for the sequence while editing (mirrors selected campaign). */
 let draftMessages = [""];
 
+/** True while the user has clicked New but hasn't saved the campaign yet. */
+let pendingNew = false;
+
 function setError(message) {
   if (!message) {
     el.globalError.hidden = true;
@@ -60,7 +63,7 @@ async function refreshCampaignSelect(selectedId) {
     el.campaignSelect.disabled = true;
     return null;
   }
-  el.campaignSelect.disabled = false;
+  el.campaignSelect.disabled = pendingNew;
   for (const c of campaigns) {
     const opt = document.createElement("option");
     opt.value = c.id;
@@ -205,19 +208,15 @@ el.campaignSelect.addEventListener("change", async () => {
   await updateTabHint();
 });
 
-el.btnNew.addEventListener("click", async () => {
+el.btnNew.addEventListener("click", () => {
   setError("");
-  try {
-    const c = await createCampaign("New campaign", [""]);
-    log("popup: created campaign", c.id, c.name);
-    await refreshCampaignSelect(c.id);
-    await loadCampaignIntoForm(c.id);
-    await renderContactsList();
-    await updateTabHint();
-  } catch (e) {
-    error("popup: create campaign failed", e);
-    setError(e instanceof Error ? e.message : String(e));
-  }
+  pendingNew = true;
+  el.btnNew.disabled = true;
+  el.campaignSelect.disabled = true;
+  el.campaignName.value = "";
+  draftMessages = [""];
+  renderSequenceEditor();
+  el.campaignName.focus();
 });
 
 el.btnAddStep.addEventListener("click", () => {
@@ -227,17 +226,22 @@ el.btnAddStep.addEventListener("click", () => {
 
 el.btnSave.addEventListener("click", async () => {
   setError("");
+  const name = el.campaignName.value.trim();
+  if (!name) {
+    setError("Campaign name is required.");
+    el.campaignName.focus();
+    return;
+  }
   let id = getSelectedCampaignId();
   try {
     if (!id) {
-      const c = await createCampaign(el.campaignName.value || "New campaign", draftMessages);
+      const c = await createCampaign(name, draftMessages);
       log("popup: created campaign via save", c.id, c.name);
       id = c.id;
+      pendingNew = false;
+      el.btnNew.disabled = false;
     } else {
-      await updateCampaign(id, {
-        name: el.campaignName.value,
-        messages: draftMessages,
-      });
+      await updateCampaign(id, { name, messages: draftMessages });
       log("popup: saved campaign", id);
     }
     await refreshCampaignSelect(id);
@@ -250,6 +254,18 @@ el.btnSave.addEventListener("click", async () => {
 });
 
 el.btnDelete.addEventListener("click", async () => {
+  if (pendingNew) {
+    // Cancel the unsaved new campaign and restore the previous selection.
+    pendingNew = false;
+    el.btnNew.disabled = false;
+    setError("");
+    const first = await refreshCampaignSelect(null);
+    if (first) await loadCampaignIntoForm(first);
+    else { el.campaignName.value = ""; draftMessages = [""]; renderSequenceEditor(); }
+    await renderContactsList();
+    await updateTabHint();
+    return;
+  }
   const id = getSelectedCampaignId();
   if (!id) return;
   if (!confirm("Delete this campaign and all enrolled contacts?")) return;
