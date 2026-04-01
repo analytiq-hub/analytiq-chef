@@ -1,18 +1,26 @@
 {
   "manifest_version": 3,
   "name": "Analytiq Chef",
-  "version": "1.2.0",
-  "description": "LinkedIn campaign messaging: sequences with _FN_ placeholders and contact lists.",
+  "version": "1.3.0",
+  "description": "LinkedIn campaign messaging: sequences with _FN_ placeholders, contact lists, and scheduled drafts.",
   "action": {
     "default_title": "Analytiq Chef",
     "default_popup": "popup.html"
   },
-  "permissions": ["activeTab", "storage"],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "permissions": ["activeTab", "storage", "alarms", "tabs"],
   "host_permissions": ["https://www.linkedin.com/*"],
   "content_scripts": [
     {
       "matches": ["https://www.linkedin.com/in/*"],
-      "js": ["lib/logger.js", "content/profile.js"],
+      "js": ["lib/logger.js", "content/profile.js", "content/messaging.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://www.linkedin.com/messaging/*"],
+      "js": ["lib/logger.js", "content/messaging.js"],
       "run_at": "document_idle"
     }
   ]

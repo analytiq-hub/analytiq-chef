@@ -134,3 +134,76 @@ async function removeContact(contactId) {
   const next = contacts.filter((c) => c.id !== contactId);
   await saveAll(campaigns, next);
 }
+
+/**
+ * @param {string} contactId
+ * @returns {Promise<CampaignContact | null>}
+ */
+async function getContactById(contactId) {
+  const { contacts } = await loadAll();
+  return contacts.find((c) => c.id === contactId) || null;
+}
+
+// ---------------------------------------------------------------------------
+// Job queue
+// ---------------------------------------------------------------------------
+
+const JOBS_KEY = "ac_jobs";
+
+/**
+ * @typedef {'pending'|'opening'|'drafted'|'sent_manually'|'failed'|'cancelled'} JobStatus
+ * @typedef {{ id: string; campaignId: string; contactId: string; stepIndex: number; finalMessage: string; scheduledFor: string; status: JobStatus; lastError: string|null; openedTabId: number|null; draftedAt: string|null; sentManuallyAt: string|null; createdAt: string; updatedAt: string }} Job
+ */
+
+/** @returns {Promise<Job[]>} */
+async function listJobs() {
+  const raw = await chrome.storage.local.get(JOBS_KEY);
+  return Array.isArray(raw[JOBS_KEY]) ? raw[JOBS_KEY] : [];
+}
+
+/**
+ * @param {{ campaignId: string; contactId: string; stepIndex: number; finalMessage: string; scheduledFor: string }} data
+ * @returns {Promise<Job>}
+ */
+async function createJob(data) {
+  const jobs = await listJobs();
+  const now = new Date().toISOString();
+  const job = {
+    id: crypto.randomUUID(),
+    campaignId: data.campaignId,
+    contactId: data.contactId,
+    stepIndex: data.stepIndex,
+    finalMessage: data.finalMessage,
+    scheduledFor: data.scheduledFor,
+    status: "pending",
+    lastError: null,
+    openedTabId: null,
+    draftedAt: null,
+    sentManuallyAt: null,
+    createdAt: now,
+    updatedAt: now,
+  };
+  jobs.push(job);
+  await chrome.storage.local.set({ [JOBS_KEY]: jobs });
+  return job;
+}
+
+/**
+ * @param {string} id
+ * @param {Partial<Job>} patch
+ * @returns {Promise<Job>}
+ */
+async function updateJob(id, patch) {
+  const jobs = await listJobs();
+  const i = jobs.findIndex((j) => j.id === id);
+  if (i === -1) throw new Error("Job not found");
+  jobs[i] = { ...jobs[i], ...patch, updatedAt: new Date().toISOString() };
+  await chrome.storage.local.set({ [JOBS_KEY]: jobs });
+  return jobs[i];
+}
+
+/** @param {string} id */
+async function deleteJob(id) {
+  const jobs = await listJobs();
+  await chrome.storage.local.set({ [JOBS_KEY]: jobs.filter((j) => j.id !== id) });
+}

@@ -22,6 +22,7 @@
           <div class="select-btn-row">
             <select id="campaign-select" class="select"></select>
             <button type="button" id="btn-new-campaign" class="btn btn-secondary">New</button>
+            <button type="button" id="btn-clone-campaign" class="btn btn-secondary" title="Duplicate campaign">Clone</button>
           </div>
         </div>
         <div class="row">
@@ -52,6 +53,20 @@
           <p id="contacts-empty" class="muted">No contacts yet. Open a profile and add it above.</p>
         </section>
       </div>
+    </div>
+
+    <section class="card queue-card">
+      <h2 class="card-title">Scheduled messages</h2>
+      <ul id="queue-list" class="queue-list"></ul>
+      <p id="queue-empty" class="muted" hidden>No scheduled messages yet.</p>
+    </section>
+
+    <div class="data-bar">
+      <button type="button" id="btn-export" class="btn btn-secondary btn-tiny">Export data</button>
+      <label class="btn btn-secondary btn-tiny import-label">
+        Import data
+        <input type="file" id="import-file" accept=".json" hidden />
+      </label>
     </div>
 
     <details class="card log-details" id="log-details">

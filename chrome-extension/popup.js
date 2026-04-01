@@ -7,7 +7,7 @@ const PROFILE_URL_RE = /^https:\/\/(www\.)?linkedin\.com\/in\/[^/?#]+\/?/i;
 function assertExtensionStorage() {
   if (typeof chrome === "undefined" || !chrome.storage || !chrome.storage.local) {
     throw new Error(
-      "chrome.storage is not available. Load this extension with “Load unpacked” on chrome://extensions and open the popup from the toolbar—not by opening popup.html in a tab. After editing manifest.json, click Reload on the extension card."
+      "chrome.storage is not available. Load this extension with 'Load unpacked' on chrome://extensions and open the popup from the toolbar—not by opening popup.html in a tab. After editing manifest.json, click Reload on the extension card."
     );
   }
 }
@@ -18,6 +18,7 @@ const el = {
   campaignName: document.getElementById("campaign-name"),
   sequenceEditor: document.getElementById("sequence-editor"),
   btnNew: document.getElementById("btn-new-campaign"),
+  btnClone: document.getElementById("btn-clone-campaign"),
   btnAddStep: document.getElementById("btn-add-step"),
   btnSave: document.getElementById("btn-save-campaign"),
   btnDelete: document.getElementById("btn-delete-campaign"),
@@ -25,6 +26,10 @@ const el = {
   btnAddProfile: document.getElementById("btn-add-profile"),
   contactsList: document.getElementById("contacts-list"),
   contactsEmpty: document.getElementById("contacts-empty"),
+  queueList: document.getElementById("queue-list"),
+  queueEmpty: document.getElementById("queue-empty"),
+  btnExport: document.getElementById("btn-export"),
+  importFile: document.getElementById("import-file"),
   captureLogs: document.getElementById("capture-logs"),
   logPanel: document.getElementById("log-panel"),
   btnLogRefresh: document.getElementById("btn-log-refresh"),
@@ -38,6 +43,10 @@ let draftMessages = [""];
 /** True while the user has clicked New but hasn't saved the campaign yet. */
 let pendingNew = false;
 
+// ---------------------------------------------------------------------------
+// Error display
+// ---------------------------------------------------------------------------
+
 function setError(message) {
   if (!message) {
     el.globalError.hidden = true;
@@ -47,6 +56,10 @@ function setError(message) {
   el.globalError.textContent = message;
   el.globalError.hidden = false;
 }
+
+// ---------------------------------------------------------------------------
+// Campaign helpers
+// ---------------------------------------------------------------------------
 
 function getSelectedCampaignId() {
   return el.campaignSelect.value || null;
@@ -122,6 +135,10 @@ async function loadCampaignIntoForm(campaignId) {
   renderSequenceEditor();
 }
 
+// ---------------------------------------------------------------------------
+// Contacts list (with per-contact Schedule button)
+// ---------------------------------------------------------------------------
+
 async function renderContactsList() {
   const campaignId = getSelectedCampaignId();
   el.contactsList.innerHTML = "";
@@ -141,9 +158,11 @@ async function renderContactsList() {
   for (const contact of contacts) {
     const li = document.createElement("li");
     li.className = "contact-item";
+
     const name = document.createElement("p");
     name.className = "contact-name";
     name.textContent = contact.fullName;
+
     const meta = document.createElement("p");
     meta.className = "contact-meta";
     const a = document.createElement("a");
@@ -152,30 +171,300 @@ async function renderContactsList() {
     a.rel = "noopener noreferrer";
     a.textContent = contact.linkedinProfileUrl;
     meta.appendChild(a);
+
     li.appendChild(name);
     li.appendChild(meta);
+
     if (firstTemplate.trim()) {
       const prev = document.createElement("p");
       prev.className = "contact-preview";
       prev.textContent = `Step 1 preview: ${replaceFnPlaceholder(firstTemplate, contact.firstName)}`;
       li.appendChild(prev);
     }
+
     const actions = document.createElement("div");
     actions.className = "contact-actions";
+
     const removeBtn = document.createElement("button");
     removeBtn.type = "button";
     removeBtn.className = "btn-link";
-    removeBtn.textContent = "Remove from campaign";
+    removeBtn.textContent = "Remove";
     removeBtn.addEventListener("click", async () => {
       if (!confirm(`Remove ${contact.fullName} from this campaign?`)) return;
       await removeContact(contact.id);
       await renderContactsList();
     });
+
+    const schedBtn = document.createElement("button");
+    schedBtn.type = "button";
+    schedBtn.className = "btn-link btn-link-schedule";
+    schedBtn.textContent = "Schedule message";
+    schedBtn.addEventListener("click", () => {
+      const existing = li.querySelector(".schedule-form");
+      if (existing) { existing.remove(); return; }
+      if (!campaign) { setError("Campaign not found."); return; }
+      li.appendChild(buildScheduleForm(contact, campaign));
+    });
+
     actions.appendChild(removeBtn);
+    actions.appendChild(document.createTextNode(" · "));
+    actions.appendChild(schedBtn);
     li.appendChild(actions);
     el.contactsList.appendChild(li);
   }
 }
+
+// ---------------------------------------------------------------------------
+// Schedule form (per contact)
+// ---------------------------------------------------------------------------
+
+function localDatetimeValue(date) {
+  const pad = (n) => String(n).padStart(2, "0");
+  return (
+    `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}` +
+    `T${pad(date.getHours())}:${pad(date.getMinutes())}`
+  );
+}
+
+function buildScheduleForm(contact, campaign) {
+  const wrap = document.createElement("div");
+  wrap.className = "schedule-form";
+
+  // Step selector (only shown when there is more than one message)
+  let stepSelect = null;
+  if (campaign.messages.length > 1) {
+    const row = document.createElement("div");
+    row.className = "schedule-row";
+    const lbl = document.createElement("label");
+    lbl.className = "label";
+    lbl.textContent = "Message step";
+    stepSelect = document.createElement("select");
+    stepSelect.className = "select";
+    campaign.messages.forEach((_, i) => {
+      const opt = document.createElement("option");
+      opt.value = String(i);
+      opt.textContent = `Step ${i + 1}`;
+      stepSelect.appendChild(opt);
+    });
+    row.appendChild(lbl);
+    row.appendChild(stepSelect);
+    wrap.appendChild(row);
+  }
+
+  // Date/time picker
+  const timeRow = document.createElement("div");
+  timeRow.className = "schedule-row";
+  const timeLbl = document.createElement("label");
+  timeLbl.className = "label";
+  timeLbl.textContent = "Send at";
+  const timeInput = document.createElement("input");
+  timeInput.type = "datetime-local";
+  timeInput.className = "input";
+  timeInput.value = localDatetimeValue(new Date(Date.now() + 5 * 60 * 1000));
+  timeRow.appendChild(timeLbl);
+  timeRow.appendChild(timeInput);
+  wrap.appendChild(timeRow);
+
+  // Live preview
+  const preview = document.createElement("p");
+  preview.className = "schedule-preview";
+  function updatePreview() {
+    const idx = stepSelect ? parseInt(stepSelect.value, 10) : 0;
+    const msg = campaign.messages[idx] || "";
+    preview.textContent = replaceFnPlaceholder(msg, contact.firstName);
+  }
+  updatePreview();
+  if (stepSelect) stepSelect.addEventListener("change", updatePreview);
+  wrap.appendChild(preview);
+
+  // Action buttons
+  const btnRow = document.createElement("div");
+  btnRow.className = "btn-row";
+
+  const queueBtn = document.createElement("button");
+  queueBtn.type = "button";
+  queueBtn.className = "btn btn-primary";
+  queueBtn.textContent = "Add to queue";
+  queueBtn.addEventListener("click", async () => {
+    const stepIndex = stepSelect ? parseInt(stepSelect.value, 10) : 0;
+    const scheduledFor = new Date(timeInput.value).toISOString();
+    const finalMessage = replaceFnPlaceholder(
+      campaign.messages[stepIndex] || "",
+      contact.firstName
+    );
+    try {
+      await createJob({ campaignId: campaign.id, contactId: contact.id, stepIndex, finalMessage, scheduledFor });
+      log("popup: scheduled job for", contact.fullName, "step", stepIndex + 1);
+      wrap.remove();
+      await renderQueue();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  });
+
+  const cancelBtn = document.createElement("button");
+  cancelBtn.type = "button";
+  cancelBtn.className = "btn btn-secondary";
+  cancelBtn.textContent = "Cancel";
+  cancelBtn.addEventListener("click", () => wrap.remove());
+
+  btnRow.appendChild(queueBtn);
+  btnRow.appendChild(cancelBtn);
+  wrap.appendChild(btnRow);
+
+  return wrap;
+}
+
+// ---------------------------------------------------------------------------
+// Queue rendering
+// ---------------------------------------------------------------------------
+
+const STATUS_LABELS = {
+  pending: "Pending",
+  opening: "Opening…",
+  drafted: "Ready to send",
+  sent_manually: "Sent",
+  failed: "Failed",
+  cancelled: "Cancelled",
+};
+
+function formatScheduledFor(iso) {
+  return new Date(iso).toLocaleString(undefined, { dateStyle: "short", timeStyle: "short" });
+}
+
+function notifyBadgeUpdate() {
+  chrome.runtime.sendMessage({ type: "UPDATE_BADGE" }).catch(() => {});
+}
+
+async function renderQueue() {
+  const [jobs, { contacts, campaigns }] = await Promise.all([listJobs(), loadAll()]);
+
+  el.queueList.innerHTML = "";
+
+  // Show everything except old completed/cancelled jobs to keep the list manageable
+  const active = jobs.filter((j) => !["sent_manually", "cancelled"].includes(j.status));
+
+  if (!active.length) {
+    el.queueEmpty.hidden = false;
+    return;
+  }
+  el.queueEmpty.hidden = true;
+
+  // Sort: action-needed first, then by scheduled time
+  const priority = { drafted: 0, failed: 1, opening: 2, pending: 3 };
+  active.sort((a, b) => {
+    const pa = priority[a.status] ?? 9;
+    const pb = priority[b.status] ?? 9;
+    if (pa !== pb) return pa - pb;
+    return new Date(a.scheduledFor) - new Date(b.scheduledFor);
+  });
+
+  for (const job of active) {
+    const contact = contacts.find((c) => c.id === job.contactId);
+    const campaign = campaigns.find((c) => c.id === job.campaignId);
+    el.queueList.appendChild(renderJobItem(job, contact, campaign));
+  }
+}
+
+function renderJobItem(job, contact, campaign) {
+  const li = document.createElement("li");
+  li.className = "queue-item";
+
+  // — Info column —
+  const info = document.createElement("div");
+  info.className = "queue-item-info";
+
+  const nameEl = document.createElement("span");
+  nameEl.className = "queue-contact-name";
+  nameEl.textContent = contact ? contact.fullName : "(unknown contact)";
+
+  const stepEl = document.createElement("span");
+  stepEl.className = "queue-step";
+  const campaignName = campaign ? campaign.name : "Unknown campaign";
+  stepEl.textContent = `${campaignName} · Step ${job.stepIndex + 1}`;
+
+  const whenEl = document.createElement("span");
+  whenEl.className = "queue-when";
+  whenEl.textContent = formatScheduledFor(job.scheduledFor);
+
+  const statusEl = document.createElement("span");
+  statusEl.className = `queue-status queue-status-${job.status}`;
+  statusEl.textContent = STATUS_LABELS[job.status] || job.status;
+
+  info.appendChild(nameEl);
+  info.appendChild(stepEl);
+  info.appendChild(whenEl);
+  info.appendChild(statusEl);
+
+  if (job.status === "failed" && job.lastError) {
+    const errEl = document.createElement("span");
+    errEl.className = "queue-error";
+    errEl.textContent = job.lastError;
+    info.appendChild(errEl);
+  }
+
+  // — Actions column —
+  const actionsEl = document.createElement("div");
+  actionsEl.className = "queue-item-actions";
+
+  if (job.status === "drafted") {
+    // "Go to tab" focuses the already-open LinkedIn tab
+    if (job.openedTabId) {
+      const goBtn = document.createElement("button");
+      goBtn.type = "button";
+      goBtn.className = "btn btn-secondary btn-tiny";
+      goBtn.textContent = "Go to tab";
+      goBtn.addEventListener("click", async () => {
+        try { await chrome.tabs.update(job.openedTabId, { active: true }); } catch { /* tab may be closed */ }
+      });
+      actionsEl.appendChild(goBtn);
+    }
+
+    const markSentBtn = document.createElement("button");
+    markSentBtn.type = "button";
+    markSentBtn.className = "btn btn-primary btn-tiny";
+    markSentBtn.textContent = "Mark sent";
+    markSentBtn.addEventListener("click", async () => {
+      await updateJob(job.id, { status: "sent_manually", sentManuallyAt: new Date().toISOString() });
+      await renderQueue();
+      notifyBadgeUpdate();
+    });
+    actionsEl.appendChild(markSentBtn);
+  }
+
+  if (job.status === "failed") {
+    const retryBtn = document.createElement("button");
+    retryBtn.type = "button";
+    retryBtn.className = "btn btn-secondary btn-tiny";
+    retryBtn.textContent = "Retry";
+    retryBtn.addEventListener("click", async () => {
+      await updateJob(job.id, { status: "pending", lastError: null, openedTabId: null });
+      await renderQueue();
+    });
+    actionsEl.appendChild(retryBtn);
+  }
+
+  if (["pending", "opening", "drafted", "failed"].includes(job.status)) {
+    const cancelBtn = document.createElement("button");
+    cancelBtn.type = "button";
+    cancelBtn.className = "btn-link btn-tiny";
+    cancelBtn.textContent = "Cancel";
+    cancelBtn.addEventListener("click", async () => {
+      await updateJob(job.id, { status: "cancelled" });
+      await renderQueue();
+      notifyBadgeUpdate();
+    });
+    actionsEl.appendChild(cancelBtn);
+  }
+
+  li.appendChild(info);
+  li.appendChild(actionsEl);
+  return li;
+}
+
+// ---------------------------------------------------------------------------
+// Tab hint
+// ---------------------------------------------------------------------------
 
 async function updateTabHint() {
   try {
@@ -200,6 +489,10 @@ async function updateTabHint() {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Campaign select change
+// ---------------------------------------------------------------------------
+
 el.campaignSelect.addEventListener("change", async () => {
   setError("");
   const id = getSelectedCampaignId();
@@ -208,10 +501,15 @@ el.campaignSelect.addEventListener("change", async () => {
   await updateTabHint();
 });
 
+// ---------------------------------------------------------------------------
+// New campaign
+// ---------------------------------------------------------------------------
+
 el.btnNew.addEventListener("click", () => {
   setError("");
   pendingNew = true;
   el.btnNew.disabled = true;
+  el.btnClone.disabled = true;
   el.campaignSelect.disabled = true;
   el.campaignName.value = "";
   draftMessages = [""];
@@ -219,10 +517,41 @@ el.btnNew.addEventListener("click", () => {
   el.campaignName.focus();
 });
 
+// ---------------------------------------------------------------------------
+// Clone campaign
+// ---------------------------------------------------------------------------
+
+el.btnClone.addEventListener("click", async () => {
+  const id = getSelectedCampaignId();
+  if (!id) return;
+  setError("");
+  try {
+    const { campaigns } = await loadAll();
+    const src = campaigns.find((c) => c.id === id);
+    if (!src) return;
+    const clone = await createCampaign(`${src.name} (copy)`, [...src.messages]);
+    log("popup: cloned campaign", src.id, "→", clone.id);
+    await refreshCampaignSelect(clone.id);
+    await loadCampaignIntoForm(clone.id);
+    await renderContactsList();
+    await updateTabHint();
+  } catch (e) {
+    setError(e instanceof Error ? e.message : String(e));
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Add message step
+// ---------------------------------------------------------------------------
+
 el.btnAddStep.addEventListener("click", () => {
   draftMessages.push("");
   renderSequenceEditor();
 });
+
+// ---------------------------------------------------------------------------
+// Save campaign
+// ---------------------------------------------------------------------------
 
 el.btnSave.addEventListener("click", async () => {
   setError("");
@@ -246,6 +575,7 @@ el.btnSave.addEventListener("click", async () => {
       id = c.id;
       pendingNew = false;
       el.btnNew.disabled = false;
+      el.btnClone.disabled = false;
     } else {
       await updateCampaign(id, { name, messages: draftMessages });
       log("popup: saved campaign", id);
@@ -259,11 +589,15 @@ el.btnSave.addEventListener("click", async () => {
   }
 });
 
+// ---------------------------------------------------------------------------
+// Delete / cancel new campaign
+// ---------------------------------------------------------------------------
+
 el.btnDelete.addEventListener("click", async () => {
   if (pendingNew) {
-    // Cancel the unsaved new campaign and restore the previous selection.
     pendingNew = false;
     el.btnNew.disabled = false;
+    el.btnClone.disabled = false;
     setError("");
     const first = await refreshCampaignSelect(null);
     if (first) await loadCampaignIntoForm(first);
@@ -280,11 +614,7 @@ el.btnDelete.addEventListener("click", async () => {
     await deleteCampaign(id);
     const next = await refreshCampaignSelect(null);
     if (next) await loadCampaignIntoForm(next);
-    else {
-      el.campaignName.value = "";
-      draftMessages = [""];
-      renderSequenceEditor();
-    }
+    else { el.campaignName.value = ""; draftMessages = [""]; renderSequenceEditor(); }
     await renderContactsList();
     await updateTabHint();
   } catch (e) {
@@ -292,13 +622,14 @@ el.btnDelete.addEventListener("click", async () => {
   }
 });
 
+// ---------------------------------------------------------------------------
+// Add profile from current tab
+// ---------------------------------------------------------------------------
+
 el.btnAddProfile.addEventListener("click", async () => {
   setError("");
   const campaignId = getSelectedCampaignId();
-  if (!campaignId) {
-    setError("Select a campaign first.");
-    return;
-  }
+  if (!campaignId) { setError("Select a campaign first."); return; }
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   if (!tab?.id || !tab.url || !PROFILE_URL_RE.test(tab.url)) {
     setError("Active tab must be a LinkedIn profile (/in/…).");
@@ -320,10 +651,9 @@ el.btnAddProfile.addEventListener("click", async () => {
     log("popup: contact added", profile.profileUrl, "→ campaign", campaignId);
     await renderContactsList();
   } catch (e) {
-    const msg =
-      e && typeof e === "object" && "message" in e
-        ? String(/** @type {{ message?: string }} */ (e).message)
-        : String(e);
+    const msg = e && typeof e === "object" && "message" in e
+      ? String(/** @type {{ message?: string }} */ (e).message)
+      : String(e);
     error("popup: add profile failed", msg);
     if (msg.includes("Receiving end does not exist")) {
       setError("Reload the LinkedIn profile tab so the extension can attach, then try again.");
@@ -332,6 +662,64 @@ el.btnAddProfile.addEventListener("click", async () => {
     }
   }
 });
+
+// ---------------------------------------------------------------------------
+// Export / Import
+// ---------------------------------------------------------------------------
+
+el.btnExport.addEventListener("click", async () => {
+  try {
+    const [{ campaigns, contacts }, jobs] = await Promise.all([loadAll(), listJobs()]);
+    const payload = JSON.stringify({ campaigns, contacts, jobs }, null, 2);
+    const blob = new Blob([payload], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `analytiq-chef-${new Date().toISOString().slice(0, 10)}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+    log("popup: exported data");
+  } catch (e) {
+    setError(e instanceof Error ? e.message : String(e));
+  }
+});
+
+el.importFile.addEventListener("change", async () => {
+  const file = el.importFile.files[0];
+  if (!file) return;
+  if (!confirm("Import will replace all current campaigns, contacts, and jobs. Continue?")) {
+    el.importFile.value = "";
+    return;
+  }
+  try {
+    const text = await file.text();
+    const data = JSON.parse(text);
+    if (!Array.isArray(data.campaigns) || !Array.isArray(data.contacts)) {
+      throw new Error("Invalid export file: missing campaigns or contacts arrays.");
+    }
+    await chrome.storage.local.set({
+      ac_campaigns: data.campaigns,
+      ac_campaign_contacts: data.contacts,
+      [JOBS_KEY]: Array.isArray(data.jobs) ? data.jobs : [],
+    });
+    log("popup: imported data", data.campaigns.length, "campaigns,", data.contacts.length, "contacts");
+    el.importFile.value = "";
+    const first = await refreshCampaignSelect(null);
+    if (first) await loadCampaignIntoForm(first);
+    else { el.campaignName.value = ""; draftMessages = [""]; renderSequenceEditor(); }
+    await renderContactsList();
+    await updateTabHint();
+    await renderQueue();
+    notifyBadgeUpdate();
+  } catch (e) {
+    setError(e instanceof Error ? e.message : String(e));
+    el.importFile.value = "";
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Logs UI
+// ---------------------------------------------------------------------------
 
 async function refreshLogPanel() {
   const entries = await getLogs();
@@ -371,19 +759,29 @@ async function initLogsUi() {
   await refreshLogPanel();
 }
 
+// ---------------------------------------------------------------------------
+// Storage change listener — keep queue in sync when background updates jobs
+// ---------------------------------------------------------------------------
+
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area !== "local" || !changes[JOBS_KEY]) return;
+  void renderQueue();
+});
+
+// ---------------------------------------------------------------------------
+// Init
+// ---------------------------------------------------------------------------
+
 async function init() {
   try {
     assertExtensionStorage();
     setError("");
     const first = await refreshCampaignSelect(null);
     if (first) await loadCampaignIntoForm(first);
-    else {
-      el.campaignName.value = "";
-      draftMessages = [""];
-      renderSequenceEditor();
-    }
+    else { el.campaignName.value = ""; draftMessages = [""]; renderSequenceEditor(); }
     await renderContactsList();
     await updateTabHint();
+    await renderQueue();
     await initLogsUi();
     await log("popup: opened");
     await refreshLogPanel();
