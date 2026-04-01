@@ -1,5 +1,17 @@
 const PROFILE_URL_RE = /^https:\/\/(www\.)?linkedin\.com\/in\/[^/?#]+\/?/i;
 
+/**
+ * Without the extension context, `chrome.storage` is undefined (e.g. opening
+ * popup.html as a file). With no `storage` permission, `chrome.storage` is also undefined.
+ */
+function assertExtensionStorage() {
+  if (typeof chrome === "undefined" || !chrome.storage || !chrome.storage.local) {
+    throw new Error(
+      "chrome.storage is not available. Load this extension with “Load unpacked” on chrome://extensions and open the popup from the toolbar—not by opening popup.html in a tab. After editing manifest.json, click Reload on the extension card."
+    );
+  }
+}
+
 const el = {
   globalError: document.getElementById("global-error"),
   campaignSelect: document.getElementById("campaign-select"),
@@ -215,19 +227,22 @@ el.btnAddStep.addEventListener("click", () => {
 
 el.btnSave.addEventListener("click", async () => {
   setError("");
-  const id = getSelectedCampaignId();
-  if (!id) {
-    setError("Create or select a campaign first.");
-    return;
-  }
+  let id = getSelectedCampaignId();
   try {
-    await updateCampaign(id, {
-      name: el.campaignName.value,
-      messages: draftMessages,
-    });
-    log("popup: saved campaign", id);
+    if (!id) {
+      const c = await createCampaign(el.campaignName.value || "New campaign", draftMessages);
+      log("popup: created campaign via save", c.id, c.name);
+      id = c.id;
+    } else {
+      await updateCampaign(id, {
+        name: el.campaignName.value,
+        messages: draftMessages,
+      });
+      log("popup: saved campaign", id);
+    }
     await refreshCampaignSelect(id);
     await renderContactsList();
+    await updateTabHint();
   } catch (e) {
     error("popup: save campaign failed", e);
     setError(e instanceof Error ? e.message : String(e));
@@ -267,9 +282,11 @@ el.btnAddProfile.addEventListener("click", async () => {
     setError("Active tab must be a LinkedIn profile (/in/…).");
     return;
   }
+  log("popup: add profile → tab", tab.id, tab.url);
   try {
     const profile = await chrome.tabs.sendMessage(tab.id, { type: "GET_PROFILE" });
     if (!profile || !profile.profileUrl) {
+      warn("popup: empty profile from content script");
       setError("Could not read profile from this page.");
       return;
     }
@@ -278,12 +295,14 @@ el.btnAddProfile.addEventListener("click", async () => {
       fullName: profile.fullName || "",
       firstName: profile.firstName || "",
     });
+    log("popup: contact added", profile.profileUrl, "→ campaign", campaignId);
     await renderContactsList();
   } catch (e) {
     const msg =
       e && typeof e === "object" && "message" in e
         ? String(/** @type {{ message?: string }} */ (e).message)
         : String(e);
+    error("popup: add profile failed", msg);
     if (msg.includes("Receiving end does not exist")) {
       setError("Reload the LinkedIn profile tab so the extension can attach, then try again.");
     } else {
@@ -292,17 +311,63 @@ el.btnAddProfile.addEventListener("click", async () => {
   }
 });
 
-async function init() {
-  setError("");
-  const first = await refreshCampaignSelect(null);
-  if (first) await loadCampaignIntoForm(first);
-  else {
-    el.campaignName.value = "";
-    draftMessages = [""];
-    renderSequenceEditor();
+async function refreshLogPanel() {
+  const entries = await getLogs();
+  if (!entries.length) {
+    el.logPanel.textContent = "(no log lines yet — interact with the extension or a LinkedIn profile tab.)";
+    return;
   }
-  await renderContactsList();
-  await updateTabHint();
+  el.logPanel.textContent = entries.map(formatLogLine).join("\n");
+  el.logPanel.scrollTop = el.logPanel.scrollHeight;
+}
+
+async function initLogsUi() {
+  el.captureLogs.checked = await getCaptureLogs();
+  el.captureLogs.addEventListener("change", async () => {
+    await setCaptureLogs(el.captureLogs.checked);
+    log("popup: capture logs", el.captureLogs.checked);
+    await refreshLogPanel();
+  });
+  el.btnLogRefresh.addEventListener("click", () => refreshLogPanel());
+  el.btnLogClear.addEventListener("click", async () => {
+    await clearLogs();
+    await refreshLogPanel();
+  });
+  el.btnLogCopy.addEventListener("click", async () => {
+    const text = el.logPanel.textContent || "";
+    try {
+      await navigator.clipboard.writeText(text);
+      log("popup: copied logs to clipboard");
+    } catch (e) {
+      error("popup: clipboard copy failed", e);
+    }
+  });
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area !== "local" || !changes.ac_dev_logs) return;
+    void refreshLogPanel();
+  });
+  await refreshLogPanel();
+}
+
+async function init() {
+  try {
+    assertExtensionStorage();
+    setError("");
+    const first = await refreshCampaignSelect(null);
+    if (first) await loadCampaignIntoForm(first);
+    else {
+      el.campaignName.value = "";
+      draftMessages = [""];
+      renderSequenceEditor();
+    }
+    await renderContactsList();
+    await updateTabHint();
+    await initLogsUi();
+    await log("popup: opened");
+    await refreshLogPanel();
+  } catch (e) {
+    setError(e instanceof Error ? e.message : String(e));
+  }
 }
 
 init();

@@ -46,19 +46,19 @@ function emitConsole(level, args) {
   fn(PREFIX, ...args);
 }
 
-function log(...args) {
+async function log(...args) {
   emitConsole("log", args);
-  void appendPersisted("log", args);
+  await appendPersisted("log", args);
 }
 
-function warn(...args) {
+async function warn(...args) {
   emitConsole("warn", args);
-  void appendPersisted("warn", args);
+  await appendPersisted("warn", args);
 }
 
-function error(...args) {
+async function error(...args) {
   emitConsole("error", args);
-  void appendPersisted("error", args);
+  await appendPersisted("error", args);
 }
 
 /** @returns {Promise<{ t: number; level: string; msg: string }[]>} */
